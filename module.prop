@@ -1,0 +1,6 @@
+id=pixel-usb-nopower
+name=Pixel USB No-Power
+version=v1.0
+versionCode=1
+author=tyldx
+description=USB data without drawing power

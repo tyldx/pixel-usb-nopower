@@ -1,0 +1,73 @@
+#!/system/bin/sh
+# Stop a Pixel (Tensor) from drawing power over USB while keeping USB data.
+# Usage: usbpow off [min%] | on | status
+
+NODE=/sys/devices/platform/google,charger/charge_stop_level
+PS=/sys/class/power_supply
+STATE=/dev/usbpow
+OFF=5
+INTERVAL=30
+
+# The driver rejects writing the value it already holds.
+set_level() {
+  [ "$(cat $NODE)" = "$1" ] || echo "$1" > $NODE
+}
+
+stop_monitor() {
+  [ -f $STATE/pid ] && kill -- "-$(cat $STATE/pid)" 2>/dev/null
+  rm -f $STATE/pid $STATE/min
+}
+
+restore() {
+  set_level "$(cat $STATE/orig 2>/dev/null || echo 100)"
+  rm -f $STATE/orig
+}
+
+monitor() {
+  min=$1
+  echo $$ > $STATE/pid
+  while :; do
+    if [ "$(cat $PS/battery/capacity)" -le "$min" ]; then
+      restore
+      rm -f $STATE/pid $STATE/min
+      exit 0
+    fi
+    set_level $OFF
+    sleep $INTERVAL
+  done
+}
+
+status() {
+  ua() { echo $(( $(cat $1) / 1000 ))mA; }
+  echo "stop_level=$(cat $NODE) capacity=$(cat $PS/battery/capacity)%" \
+    "usb_online=$(cat $PS/usb/online) usb=$(ua $PS/usb/current_now) batt=$(ua $PS/battery/current_now)"
+  [ -f $STATE/pid ] && echo "monitor: pid $(cat $STATE/pid), resume at $(cat $STATE/min)%"
+}
+
+[ "$(id -u)" = 0 ] || { echo "需要 root" >&2; exit 1; }
+[ -f $NODE ] || { echo "找不到 $NODE" >&2; exit 1; }
+mkdir -p $STATE
+
+case "$1" in
+  off)
+    min=${2:-30}
+    min=${min%\%}
+    case "$min" in ''|*[!0-9]*) echo "无效电量: $2" >&2; exit 1;; esac
+    stop_monitor
+    cur=$(cat $NODE)
+    [ -f $STATE/orig ] || [ "$cur" = $OFF ] || echo "$cur" > $STATE/orig
+    set_level $OFF
+    echo "$min" > $STATE/min
+    setsid sh "$0" _monitor "$min" </dev/null >/dev/null 2>&1 &
+    sleep 1
+    status
+    ;;
+  on)
+    stop_monitor
+    restore
+    status
+    ;;
+  _monitor) monitor "$2" ;;
+  ''|status) status ;;
+  *) echo "用法: usbpow off [min%] | on | status" >&2; exit 1 ;;
+esac
