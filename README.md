@@ -13,7 +13,7 @@ KernelSU/Magisk 模块：Pixel（Tensor）连 USB 时不取电，数据和 adb �
 管理器里的执行按钮用来切换。命令行：
 
 ```sh
-usbpow off [min%]  # 不取电，电量 <= min（默认 30）时自动恢复
+usbpow off [min%]  # 不取电，电量 <= min（默认 30）时自动恢复，重启后保持
 usbpow on          # 恢复
 usbpow             # 状态
 ```

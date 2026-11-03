@@ -4,7 +4,8 @@
 
 NODE=/sys/devices/platform/google,charger/charge_stop_level
 PS=/sys/class/power_supply
-STATE=/dev/usbpow
+RUN=/dev/usbpow
+DATA=/data/adb/modules/pixel-usb-nopower
 OFF=5
 INTERVAL=30
 
@@ -14,22 +15,22 @@ set_level() {
 }
 
 stop_monitor() {
-  [ -f $STATE/pid ] && kill -- "-$(cat $STATE/pid)" 2>/dev/null
-  rm -f $STATE/pid $STATE/min
+  [ -f $RUN/pid ] && kill -- "-$(cat $RUN/pid)" 2>/dev/null
+  rm -f $RUN/pid
 }
 
 restore() {
-  set_level "$(cat $STATE/orig 2>/dev/null || echo 100)"
-  rm -f $STATE/orig
+  set_level "$(cat $DATA/orig 2>/dev/null || echo 100)"
+  rm -f $DATA/orig $DATA/min
 }
 
 monitor() {
   min=$1
-  echo $$ > $STATE/pid
+  echo $$ > $RUN/pid
   while :; do
     if [ "$(cat $PS/battery/capacity)" -le "$min" ]; then
       restore
-      rm -f $STATE/pid $STATE/min
+      rm -f $RUN/pid
       exit 0
     fi
     set_level $OFF
@@ -41,12 +42,12 @@ status() {
   ua() { echo $(( $(cat $1) / 1000 ))mA; }
   echo "stop_level=$(cat $NODE) capacity=$(cat $PS/battery/capacity)%" \
     "usb_online=$(cat $PS/usb/online) usb=$(ua $PS/usb/current_now) batt=$(ua $PS/battery/current_now)"
-  [ -f $STATE/pid ] && echo "monitor: pid $(cat $STATE/pid), resume at $(cat $STATE/min)%"
+  [ -f $RUN/pid ] && echo "monitor: pid $(cat $RUN/pid), resume at $(cat $DATA/min)%"
 }
 
 [ "$(id -u)" = 0 ] || { echo "需要 root" >&2; exit 1; }
 [ -f $NODE ] || { echo "找不到 $NODE" >&2; exit 1; }
-mkdir -p $STATE
+mkdir -p $RUN $DATA
 
 case "$1" in
   off)
@@ -55,9 +56,9 @@ case "$1" in
     case "$min" in ''|*[!0-9]*) echo "无效电量: $2" >&2; exit 1;; esac
     stop_monitor
     cur=$(cat $NODE)
-    [ -f $STATE/orig ] || [ "$cur" = $OFF ] || echo "$cur" > $STATE/orig
+    [ -f $DATA/orig ] || [ "$cur" = $OFF ] || echo "$cur" > $DATA/orig
     set_level $OFF
-    echo "$min" > $STATE/min
+    echo "$min" > $DATA/min
     setsid sh "$0" _monitor "$min" </dev/null >/dev/null 2>&1 &
     sleep 1
     status
@@ -68,6 +69,7 @@ case "$1" in
     status
     ;;
   _monitor) monitor "$2" ;;
+  boot) [ ! -f $DATA/min ] || exec sh "$0" off "$(cat $DATA/min)" ;;
   ''|status) status ;;
   *) echo "用法: usbpow off [min%] | on | status" >&2; exit 1 ;;
 esac
